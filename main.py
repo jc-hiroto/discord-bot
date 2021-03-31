@@ -2,11 +2,14 @@ import discord
 import random
 import os
 import requests
+import json
 import youtube_dl
 import numpy
 import shutil
 import config
+import asyncio
 from tube_dl import Youtube
+from datetime import datetime, timedelta
 from discord.ext import commands
 from pathlib import Path
 from discord.utils import get
@@ -21,6 +24,7 @@ client = commands.Bot(command_prefix='!', description=description, intents=inten
 guild = discord.Guild
 activity = discord.Game(name='Python 3.9')
 cemojis = ['sucks']
+thonks = ['thonk','thonkpeko','clockthonk','kp','cheweithonk']
 memepath = Path('assets/meme')
 voicepath = Path('assets/voice')
 cachepath = Path('assets/cache')
@@ -127,6 +131,13 @@ def changevol(vc, vol):
 	vc.source = discord.PCMVolumeTransformer(vc.source)
 	vc.source.volume = vol
 
+def randEat(ls = open(fdpath, 'r',encoding='utf-8').readlines()):
+	randeat = random.choice(ls)
+	embed = discord.Embed(
+	title=randeat,
+	color=discord.Color.green()
+	)
+	return embed
 
 
 @client.command()
@@ -240,16 +251,13 @@ async def eat(ctx, arg1='', arg2=''):
 	if arg1.startswith('rand'):
 		await cmdEmoji(ctx, cnl, '🍽')
 		await ctx.send('🧐')
-		randeat = random.choice(eatlist)
-		embed = discord.Embed(
-		title=randeat,
-		color=discord.Color.green()
-		)
-		# embed.set_thumbnail(url=icon)
+		embed = randEat()
 		await ctx.send(f'{ctx.author.mention} 今晚，我想來點')
+		async with ctx.typing():
+			sleep(1)
 		await ctx.send(embed=embed)
-		print(randeat)
 	if arg1.startswith('list') :
+
 		await cmdEmoji(ctx, cnl, '🍽')
 		await ctx.send('```' + ''.join(eatlist) + '```')
 
@@ -352,8 +360,56 @@ async def meme(ctx, arg1='', arg2=''):
 	else:
 		await cmdEmoji(ctx, cnl, '🔀')
 		randimg = random.choice(getNonHiddenFiles(memepath))
-
+		async with ctx.typing():
+			sleep(1)
 		await ctx.send(file=discord.File(memepath / randimg))
+
+def parseF1race(season, round):
+	url = "http://ergast.com/api/f1/"+ season + "/" +round+".json"
+	payload={}
+	headers = {}
+	response = requests.get(url, headers=headers, data=payload)
+	j = response.json()
+	race = j['MRData']['RaceTable']['Races'][0]
+	return race
+
+def parseWikiImg(s):
+	purl = s.rsplit('/', 1)[-1]
+	print(purl)
+	url = "http://en.wikipedia.org/w/api.php?action=query&titles="+purl+"&prop=pageimages&format=json&pithumbsize=500"
+	payload={}
+	headers = {}
+	response = requests.get(url, headers=headers, data=payload)
+	j = response.json()
+	img = j['query']['pages']
+	for i in img:
+		img = img[i]
+	try:
+		imgUrl = img['thumbnail']['source']
+	except:
+		imgUrl = "https://image.flaticon.com/icons/png/512/65/65578.png"
+	return imgUrl
+
+@client.command()
+async def f1(ctx, arg1='', arg2=''):
+	if(arg1 != '' and arg2 != ''):
+		race = parseF1race(arg1, arg2)
+		loc = race['Circuit']['Location']['locality']+', '+race['Circuit']['Location']['country']
+		dt = datetime.strptime(race['date']+race['time'], "%Y-%m-%d%H:%M:%SZ") + timedelta(hours = 8)
+		dts = dt.strftime("%Y/%m/%d %H:%M") + " (UTC+8/TPE)"
+		embed = discord.Embed(
+		title=race['raceName'],
+		description=race['Circuit']['circuitName'],
+		color=discord.Color.green()
+		)
+		embed.set_thumbnail(url=parseWikiImg(race['Circuit']['url']))
+		embed.add_field(name='Season', value=race['season'], inline=True)
+		embed.add_field(name='Round', value=race['round'], inline=True)
+		embed.add_field(name='Location', value=loc, inline=True)
+		embed.add_field(name='Time', value=dts, inline=True)
+		await ctx.send(embed=embed)
+
+
 
 
 @client.event
@@ -366,15 +422,35 @@ async def on_message(msg):
 			emoji = get(client.emojis, name=nm)
 			# await msg.add_reaction(emoji)
 	if ':thonk:' in msg.content:
-		emoji = get(client.emojis, name='thonk')
-		await msg.add_reaction(emoji)
-	await client.process_commands(msg)
+		for nm in thonks:
+			emoji = get(client.emojis, name=nm)
+			await msg.add_reaction(emoji)
+		#emoji = get(client.emojis, name='thonk')
+		#await msg.add_reaction(emoji)
 	if msg.content.startswith('那你很') or msg.content.startswith('那他很'):
+		emoji = get(client.emojis, name='sucks')
 		adj = msg.content
 		await msg.add_reaction(emoji)
-		print(adj)
+		async with msg.channel.typing():
+			sleep(2)
 		await msg.channel.send('對阿 '+adj)
 
+	if "吃啥" in msg.content:
+		askMsg = await msg.channel.send('需要建議ㄇ🧐')
+		await askMsg.add_reaction('✅')
+		def check(reaction, user):
+			return str(reaction.emoji) in '✅' and reaction.message == askMsg and user != client.user
+		try:
+			checked = await client.wait_for('reaction_add', check=check, timeout=10)
+			if checked:
+				embed = randEat()
+				await msg.channel.send('那就吃')
+				async with msg.channel.typing():
+					sleep(1)
+				await msg.channel.send(embed=embed)
+		except asyncio.exceptions.TimeoutError:
+			await askMsg.delete()
+	await client.process_commands(msg)
 
 print('Bot Starting...')
 client.run(config.DISCORD_BOT_TOKEN)
